@@ -104,26 +104,55 @@ class Scraper(scrapelib.Scraper):
 
             _, result = self.urlretrieve(url)
             tree = lxml.html.fromstring(result.text)
+
             header_td_list = tree.xpath("//table//tr[2]//td")
             tbl_header = [td.xpath("string(.)") for td in header_td_list]
+            num_cols = len(tbl_header)
+
             total_td_list = tree.xpath("//table//tr[last()-3]//td")
             totals = [td.xpath("string(.)") for td in total_td_list]
 
+            precinct_td_list = tree.xpath("//table//tr[position() > 2 and not(position() > last()-4)]//td")
+            precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
+
+
+
+            # TO-DO: distinguish between voting on candidates vs voting on Y/N vote?
             if len(tbl_header) > 2: # more than one candidate running
                 candidates = tbl_header[2::2]
-                votes_total = totals[2::2]
+                votes_totals = totals[2::2]
             else: # only one candidate
                 candidates = [tbl_header[1]]
-                votes_total = [totals[1]]
+                votes_totals = [totals[1]]
+
+
+            results_by_precinct = []
+            for row in precinct_data:
+                row_string = [td.xpath("string(.)") for td in row]
+                precinct = row_string[0]
+                
+                precinct_result = {
+                    'precinct': precinct,
+                    'candidate_totals': {}
+                }
+                if num_cols > 2:
+                    votes_precinct = row_string[2::2]
+                else: # only one candidate
+                    votes_precinct = [row_string[1]]
+
+                for candidate, vote in zip(candidates, votes_precinct):
+                    precinct_result['candidate_totals'][candidate] = vote
+
+                results_by_precinct.append(precinct_result)
 
             candidate_totals = {}
-            for candidate, votes_total in zip(candidates, votes_total):
+            for candidate, votes_total in zip(candidates, votes_totals):
                 candidate_totals[candidate] = votes_total
 
             ward_result = {
                 'ward': ward,
                 'candidate_totals': candidate_totals,
-                'results_by_precinct': []
+                'results_by_precinct': results_by_precinct
             }
 
             contest_json['results'].append(ward_result)
