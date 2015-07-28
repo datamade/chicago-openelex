@@ -3,7 +3,7 @@ import lxml.html
 import os
 import json
 import re
-
+from dateutil.parser import parse
 
 class Scraper(scrapelib.Scraper):
     def __init__(   self,
@@ -30,12 +30,11 @@ class Scraper(scrapelib.Scraper):
     def election_urls(self):
         start_url = self.base_url + 'en/election3.asp'
 
-        print '\n\ngrabbing election result urls\n\n'
         r = self.get(start_url)
         tree = lxml.html.fromstring(r.text)
 
         elec_options = tree.xpath("//table[@class='maincontent']//select/option/@value")
-        for elec_name in elec_options[:2]: # limit for now
+        for elec_name in elec_options:
             print 'ELECTION', elec_name
             post_data = {
                 'D3' : elec_name,
@@ -73,7 +72,18 @@ class Scraper(scrapelib.Scraper):
             yield elec_name, contests, registered_voters, ballots_cast
 
     def make_elections_json(self, elec_name, contests, registered_voters, ballots_cast):
-        slug = re.sub(r'[^0-9a-z]+', '_', elec_name.lower().strip())
+        # slug = re.sub(r'[^0-9a-z]+', '_', elec_name.lower().strip())
+        elec_name = elec_name[5:]
+        parts = elec_name.split(' - ')
+
+
+        date_obj = parse(parts[1])
+        date_formatted = str(date_obj.year) + ('0'+str(date_obj.month))[-2:] + ('0'+str(date_obj.day))[-2:]
+
+        slug_parts = [date_formatted, 'il', re.sub(r'[^0-9a-z]+', '_', parts[1].lower().strip()), 'precinct']
+        slug = '__'.join(slug_parts)
+
+
         filename = 'election_json/'+slug+'.json'
 
         if not os.path.exists(filename):
@@ -81,8 +91,6 @@ class Scraper(scrapelib.Scraper):
             election_json = {
                 'election_name': elec_name,
                 'date': None,
-                'registered_voters': self.make_summary_json(registered_voters),
-                'ballots_cast': self.make_summary_json(ballots_cast),
                 'contests': [self.make_contest_json(contest_name, contest_urls) for contest_name, contest_urls in contests]
             }
 
@@ -116,7 +124,6 @@ class Scraper(scrapelib.Scraper):
             precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
 
 
-
             # TO-DO: distinguish between voting on candidates vs voting on Y/N vote?
             if len(tbl_header) > 2: # more than one candidate running
                 candidates = tbl_header[2::2]
@@ -124,7 +131,6 @@ class Scraper(scrapelib.Scraper):
             else: # only one candidate
                 candidates = [tbl_header[1]]
                 votes_totals = [totals[1]]
-
 
             results_by_precinct = []
             for row in precinct_data:
@@ -141,13 +147,13 @@ class Scraper(scrapelib.Scraper):
                     votes_precinct = [row_string[1]]
 
                 for candidate, vote in zip(candidates, votes_precinct):
-                    precinct_result['candidate_totals'][candidate] = vote
+                    precinct_result['candidate_totals'][candidate] = int(vote)
 
                 results_by_precinct.append(precinct_result)
 
             candidate_totals = {}
             for candidate, votes_total in zip(candidates, votes_totals):
-                candidate_totals[candidate] = votes_total
+                candidate_totals[candidate] = int(votes_total)
 
             ward_result = {
                 'ward': ward,
@@ -157,13 +163,5 @@ class Scraper(scrapelib.Scraper):
 
             contest_json['results'].append(ward_result)
 
-        return contest_json
-
-if __name__ == '__main__':
-    if not os.path.exists('election_json'):
-        os.mkdir('election_json')
-
-    s = Scraper()
-    
-    for elec_name, contests, registered_voters, ballots_cast in s.election_urls():
-        s.make_elections_json(elec_name, contests, registered_voters, ballots_cast)
+        return contest_json 
+        

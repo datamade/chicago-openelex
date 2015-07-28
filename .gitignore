@@ -56,5 +56,8 @@ docs/_build/
 # PyBuilder
 target/
 
+# OS
+.DS_Store
+
 # election results
 election_json/
