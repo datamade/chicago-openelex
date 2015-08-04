@@ -3,7 +3,7 @@ Chicago Open Election Scraper
 
 To run:
 
-1. set up [openelections-core](https://github.com/openelections/openelections-core)
+1. set up [datamade/openelections-core](https://github.com/datamade/openelections-core/)
 2. set up this repo
   ```
   git clone git@github.com:datamade/chicago-openelex.git
