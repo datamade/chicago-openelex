@@ -83,7 +83,6 @@ class Scraper(scrapelib.Scraper):
         slug_parts = [date_formatted, 'il', re.sub(r'[^0-9a-z]+', '_', parts[1].lower().strip()), 'precinct']
         slug = '__'.join(slug_parts)
 
-
         filename = 'election_json/'+slug+'.json'
 
         if not os.path.exists(filename):
@@ -95,7 +94,7 @@ class Scraper(scrapelib.Scraper):
             }
 
             with open(filename, 'w+') as outfile:
-                json.dump(election_json, outfile)
+                json.dump(election_json, outfile, indent=4)
 
 
 
