@@ -64,7 +64,6 @@ class Scraper(scrapelib.Scraper):
                 elif 'BALLOTS CAST - TOTAL' in contest_name:
                     ballots_cast = [(link.text, self.base_url+'en/'+link.attrib['href']) for link in links]
                 else:
-                    print '  CONTEST', contest_name
                     for link in links:
                         contest_urls.append((link.text, self.base_url+'en/'+link.attrib['href']))
                     contests.append((contest_name, contest_urls))
@@ -76,11 +75,23 @@ class Scraper(scrapelib.Scraper):
         elec_name = elec_name[5:]
         parts = elec_name.split(' - ')
 
+        if 'special' in parts[0].lower():
+            if len(parts) == 3:
+                name, seat, date = parts
+                name_party = None
+            elif len(parts) == 4:
+                name, seat, name_party, date = parts
+        else:
+            if len(parts) == 2:
+                name, date = parts
+                name_party = None
+            elif len(parts) == 3:
+                name, name_party, date = parts
 
-        date_obj = parse(parts[1])
+        date_obj = parse(date)
         date_formatted = str(date_obj.year) + ('0'+str(date_obj.month))[-2:] + ('0'+str(date_obj.day))[-2:]
 
-        slug_parts = [date_formatted, 'il', re.sub(r'[^0-9a-z]+', '_', parts[1].lower().strip()), 'precinct']
+        slug_parts = [date_formatted, 'il', re.sub(r'[^0-9a-z]+', '_', name.lower().strip()), 'precinct']
         slug = '__'.join(slug_parts)
 
         filename = 'election_json/'+slug+'.json'
@@ -103,6 +114,8 @@ class Scraper(scrapelib.Scraper):
 
     def make_contest_json(self, contest_name, contest_urls):
 
+        print '  CONTEST', contest_name
+
         contest_json = {
             'position': contest_name,
             'results': []
@@ -124,7 +137,7 @@ class Scraper(scrapelib.Scraper):
 
             total_td_list = tree.xpath("//table[1]//tr[last()-%s]//td" % idx_total_row)
             totals = [td.xpath("string(.)") for td in total_td_list]
-            
+
             precinct_td_list = tree.xpath("//table[1]//tr[position() > 2 and not(position() > last()-%s)]//td" % (idx_total_row+1))
             precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
 
