@@ -47,7 +47,7 @@ class Scraper(scrapelib.Scraper):
             _, result = self.urlretrieve(start_url, method='POST', body=post_data)
             tree = lxml.html.fromstring(result.text)
             contest_options = tree.xpath("//table[@class='maincontent']//select/option/@value")
-            for contest_name in contest_options[:10]:
+            for contest_name in contest_options:
                 post_data = {
                     'D3' : contest_name,
                     'flag' : '1',
@@ -112,14 +112,20 @@ class Scraper(scrapelib.Scraper):
             _, result = self.urlretrieve(url)
             tree = lxml.html.fromstring(result.text)
 
-            header_td_list = tree.xpath("//table//tr[2]//td")
+            header_td_list = tree.xpath("//table[1]//tr[2]//td")
             tbl_header = [td.xpath("string(.)") for td in header_td_list]
             num_cols = len(tbl_header)
 
-            total_td_list = tree.xpath("//table//tr[last()-3]//td")
-            totals = [td.xpath("string(.)") for td in total_td_list]
+            # finding the position of the last row of results (the row w/ totals)
+            # b/c sometimes there are extra non-result rows in the table
+            rows = tree.xpath("//table[1]//tr")
+            first_col_str = [tr.xpath("td")[0].xpath("string(.)") if tr.xpath("td") else None for tr in rows]
+            idx_total_row = list(reversed(first_col_str)).index('Total')
 
-            precinct_td_list = tree.xpath("//table//tr[position() > 2 and not(position() > last()-4)]//td")
+            total_td_list = tree.xpath("//table[1]//tr[last()-%s]//td" % idx_total_row)
+            totals = [td.xpath("string(.)") for td in total_td_list]
+            
+            precinct_td_list = tree.xpath("//table[1]//tr[position() > 2 and not(position() > last()-%s)]//td" % (idx_total_row+1))
             precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
 
 
