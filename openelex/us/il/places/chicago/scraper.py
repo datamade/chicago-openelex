@@ -54,19 +54,37 @@ class Scraper(scrapelib.Scraper):
                     'B1' : '  View The Results   '
                     }
 
-                _, result = self.urlretrieve(result.url, method='POST', body=post_data)
-                contest_urls = []
+                try:
+                    _, result = self.urlretrieve(result.url, method='POST', body=post_data)
+                    contest_urls = []
+                    ballots_cast = None
+                    registered_voters = None
 
-                tree = lxml.html.fromstring(result.text)
-                links = tree.xpath("//table//tr//td[1]//a")
-                if 'REGISTERED VOTERS - TOTAL' in contest_name:
-                    registered_voters = [(link.text, self.base_url+'en/'+link.attrib['href']) for link in links]
-                elif 'BALLOTS CAST - TOTAL' in contest_name:
-                    ballots_cast = [(link.text, self.base_url+'en/'+link.attrib['href']) for link in links]
-                else:
-                    for link in links:
-                        contest_urls.append((link.text, self.base_url+'en/'+link.attrib['href']))
-                    contests.append((contest_name, contest_urls))
+                    try:
+                        tree = lxml.html.fromstring(result.text)
+                        links = tree.xpath("//table//tr//td[1]//a")
+                        if 'REGISTERED VOTERS - TOTAL' in contest_name:
+                            registered_voters = [(link.text, self.base_url+'en/'+link.attrib['href']) for link in links]
+                        elif 'BALLOTS CAST - TOTAL' in contest_name:
+                            ballots_cast = [(link.text, self.base_url+'en/'+link.attrib['href']) for link in links]
+                        else:
+                            for link in links:
+                                contest_urls.append((link.text, self.base_url+'en/'+link.attrib['href']))
+                            contests.append((contest_name, contest_urls))
+                    except:
+                        # TO DO - figure out what's going on here
+                        print "*** ERROR: UNABLE TO PARSE HTML ***"
+                        print "SKIPPING CONTEST: %s" % contest_name
+                        print "request url: %s" % result.url
+                        print "request post data: %s" %post_data
+                        print "***********************************\n"
+
+                except:
+                    print "*** ERROR: UNABLE TO RETRIEVE RESULT ***"
+                    print "SKIPPING CONTEST: %s" % contest_name
+                    print "request url: %s" % result.url
+                    print "request post data: %s" %post_data
+                    print "***********************************\n"
 
             yield elec_name, contests, registered_voters, ballots_cast
 
@@ -76,12 +94,14 @@ class Scraper(scrapelib.Scraper):
         parts = elec_name.split(' - ')
 
         if 'special' in parts[0].lower():
+            is_special = True
             if len(parts) == 3:
                 name, seat, date = parts
                 name_party = None
             elif len(parts) == 4:
                 name, seat, name_party, date = parts
         else:
+            is_special = False
             if len(parts) == 2:
                 name, date = parts
                 name_party = None
@@ -91,7 +111,15 @@ class Scraper(scrapelib.Scraper):
         date_obj = parse(date)
         date_formatted = str(date_obj.year) + ('0'+str(date_obj.month))[-2:] + ('0'+str(date_obj.day))[-2:]
 
-        slug_parts = [date_formatted, 'il', re.sub(r'[^0-9a-z]+', '_', name.lower().strip()), 'precinct']
+        # slug_parts = [date_formatted, 'il', re.sub(r'[^0-9a-z]+', '_', name.lower().strip()), 'precinct']
+        slug_parts = [date_formatted, 'il']
+        if name_party:
+            slug_parts.append(name_party)
+        if is_special:
+            slug_parts.append('special')
+        slug_parts.append(re.sub(r'[^0-9a-z]+', '_', name.lower().strip()))
+        slug_parts.append('precinct')
+
         slug = '__'.join(slug_parts)
 
         filename = 'election_json/'+slug+'.json'
