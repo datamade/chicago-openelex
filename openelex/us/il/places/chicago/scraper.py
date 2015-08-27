@@ -4,6 +4,7 @@ import os
 import json
 import re
 from dateutil.parser import parse
+import requests
 
 class Scraper(scrapelib.Scraper):
     def __init__(   self,
@@ -150,7 +151,14 @@ class Scraper(scrapelib.Scraper):
         }
         for ward, url in contest_urls:
 
-            _, result = self.urlretrieve(url)
+            try:
+                _, result = self.urlretrieve(url)
+            except:
+                print "******** urlretrieve failed for %s, usingg requests instead" %url
+                print "_ %s" % _
+                print "*"*60
+                result = requests.get(url)
+
             tree = lxml.html.fromstring(result.text)
 
             header_td_list = tree.xpath("//table[1]//tr[2]//td")
@@ -161,13 +169,28 @@ class Scraper(scrapelib.Scraper):
             # b/c sometimes there are extra non-result rows in the table
             rows = tree.xpath("//table[1]//tr")
             first_col_str = [tr.xpath("td")[0].xpath("string(.)") if tr.xpath("td") else None for tr in rows]
-            idx_total_row = list(reversed(first_col_str)).index('Total')
-
-            total_td_list = tree.xpath("//table[1]//tr[last()-%s]//td" % idx_total_row)
-            totals = [td.xpath("string(.)") for td in total_td_list]
-
-            precinct_td_list = tree.xpath("//table[1]//tr[position() > 2 and not(position() > last()-%s)]//td" % (idx_total_row+1))
-            precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
+            if 'Total' in first_col_str:
+                idx_total_row = list(reversed(first_col_str)).index('Total')
+                total_td_list = tree.xpath("//table[1]//tr[last()-%s]//td" % idx_total_row)
+                totals = [td.xpath("string(.)") for td in total_td_list]
+                precinct_td_list = tree.xpath("//table[1]//tr[position() > 2 and not(position() > last()-%s)]//td" % (idx_total_row+1))
+                precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
+            else:
+                precinct_td_list = tree.xpath("//table[1]//tr[position() > 2 and not(position() > last()-%s)]//td" % (idx_total_row+1))
+                precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
+                totals = []
+                for i in range(0, len(precinct_data[0])):
+                    col_total = 0
+                    for row in precinct_data:
+                        try:
+                            parsed_num = int(row[i].xpath("string(.)"))
+                        except:
+                            # sometimes these will be percentages but these will be ignored later anyways
+                            parsed_num = 0
+                        col_total += parsed_num
+                    totals.append(col_total)
+                print "TOTALS"
+                print totals
 
 
             # TO-DO: distinguish between voting on candidates vs voting on Y/N vote?
