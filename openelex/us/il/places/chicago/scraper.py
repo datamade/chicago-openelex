@@ -66,7 +66,7 @@ class Scraper(scrapelib.Scraper):
                         links = tree.xpath("//table//tr//td[1]//a")
                         if 'REGISTERED VOTERS - TOTAL' in contest_name:
                             registered_voters = [(link.text, self.base_url+'en/'+link.attrib['href']) for link in links]
-                        elif 'BALLOTS CAST - TOTAL' in contest_name:
+                        elif 'BALLOTS CAST - ' in contest_name:
                             ballots_cast = [(link.text, self.base_url+'en/'+link.attrib['href']) for link in links]
                         else:
                             for link in links:
@@ -155,88 +155,96 @@ class Scraper(scrapelib.Scraper):
                 _, result = self.urlretrieve(url)
             except:
                 print "-"*60
-                print "contest: %s" %contest_name
-                print "urlretrieve failed for %s, using requests instead" %url
+                print "NOTE: using requests instead of urlretrieve b/c urlretrieve failed"
+                print "ward results url: %s" % url
+                print "contest: %s" % contest_name
                 print "-"*60
                 result = requests.get(url)
 
-            tree = lxml.html.fromstring(result.text)
-
-            header_td_list = tree.xpath("//table[1]//tr[2]//td")
-            tbl_header = [td.xpath("string(.)") for td in header_td_list]
-            num_cols = len(tbl_header)
-
-            # finding the position of the last row of results (the row w/ totals)
-            # b/c sometimes there are extra non-result rows in the table
-            rows = tree.xpath("//table[1]//tr")
-            first_col_str = [tr.xpath("td")[0].xpath("string(.)") if tr.xpath("td") else None for tr in rows]
-            if 'Total' in first_col_str:
-                idx_total_row = list(reversed(first_col_str)).index('Total')
-                precinct_td_list = tree.xpath("//table[1]//tr[position() > 2 and not(position() > last()-%s)]//td" % (idx_total_row+1))
-                precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
+            if 'ward, election selected or contest was bad' in result.text.lower():
+                print "*"*60
+                print "ERROR: BROKEN RESULTS PAGE"
+                print "url: %s" % url
+                print "*"*60
             else:
-                precinct_td_list = tree.xpath("//table[1]//tr[position() > 2]//td")
-                precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
 
-            if precinct_data:
-                totals = []
-                # loop through columns
-                for i in range(0, len(precinct_data[0])):
-                    col_total = 0
-                    # loop through rows to get the sum of all values in a column
-                    for row in precinct_data:
-                        try:
-                            parsed_num = int(row[i].xpath("string(.)"))
-                            col_total += parsed_num
-                        except:
-                            # sometimes these will be percentages but these will be ignored later anyways
-                            col_total = None
-                    totals.append(col_total)
+                tree = lxml.html.fromstring(result.text)
 
-                # TO-DO: distinguish between voting on candidates vs voting on Y/N vote?
-                if len(tbl_header) > 2: # more than one candidate running
-                    candidates = tbl_header[2::2]
-                    votes_totals = totals[2::2]
-                else: # only one candidate
-                    candidates = [tbl_header[1]]
-                    votes_totals = [totals[1]]
+                header_td_list = tree.xpath("//table[1]//tr[2]//td")
+                tbl_header = [td.xpath("string(.)") for td in header_td_list]
+                num_cols = len(tbl_header)
 
-                results_by_precinct = []
-                for row in precinct_data:
-                    row_string = [td.xpath("string(.)") for td in row]
-                    precinct = row_string[0]
-                    
-                    precinct_result = {
-                        'precinct': precinct,
-                        'candidate_totals': {}
-                    }
-                    if num_cols > 2:
-                        votes_precinct = row_string[2::2]
+                # finding the position of the last row of results (the row w/ totals)
+                # b/c sometimes there are extra non-result rows in the table
+                rows = tree.xpath("//table[1]//tr")
+                first_col_str = [tr.xpath("td")[0].xpath("string(.)") if tr.xpath("td") else None for tr in rows]
+                if 'Total' in first_col_str:
+                    idx_total_row = list(reversed(first_col_str)).index('Total')
+                    precinct_td_list = tree.xpath("//table[1]//tr[position() > 2 and not(position() > last()-%s)]//td" % (idx_total_row+1))
+                    precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
+                else:
+                    precinct_td_list = tree.xpath("//table[1]//tr[position() > 2]//td")
+                    precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
+
+                if precinct_data:
+                    totals = []
+                    # loop through columns
+                    for i in range(0, len(precinct_data[0])):
+                        col_total = 0
+                        # loop through rows to get the sum of all values in a column
+                        for row in precinct_data:
+                            try:
+                                parsed_num = int(row[i].xpath("string(.)"))
+                                col_total += parsed_num
+                            except:
+                                # sometimes these will be percentages but these will be ignored later anyways
+                                col_total = None
+                        totals.append(col_total)
+
+                    # TO-DO: distinguish between voting on candidates vs voting on Y/N vote?
+                    if len(tbl_header) > 2: # more than one candidate running
+                        candidates = tbl_header[2::2]
+                        votes_totals = totals[2::2]
                     else: # only one candidate
-                        votes_precinct = [row_string[1]]
+                        candidates = [tbl_header[1]]
+                        votes_totals = [totals[1]]
 
-                    for candidate, vote in zip(candidates, votes_precinct):
-                        precinct_result['candidate_totals'][candidate] = int(vote)
+                    results_by_precinct = []
+                    for row in precinct_data:
+                        row_string = [td.xpath("string(.)") for td in row]
+                        precinct = row_string[0]
+                        
+                        precinct_result = {
+                            'precinct': precinct,
+                            'candidate_totals': {}
+                        }
+                        if num_cols > 2:
+                            votes_precinct = row_string[2::2]
+                        else: # only one candidate
+                            votes_precinct = [row_string[1]]
 
-                    results_by_precinct.append(precinct_result)
+                        for candidate, vote in zip(candidates, votes_precinct):
+                            precinct_result['candidate_totals'][candidate] = int(vote)
 
-                candidate_totals = {}
-                for candidate, votes_total in zip(candidates, votes_totals):
-                    candidate_totals[candidate] = int(votes_total)
+                        results_by_precinct.append(precinct_result)
 
-                ward_result = {
-                    'ward': ward,
-                    'candidate_totals': candidate_totals,
-                    'results_by_precinct': results_by_precinct
-                }
+                    candidate_totals = {}
+                    for candidate, votes_total in zip(candidates, votes_totals):
+                        candidate_totals[candidate] = int(votes_total)
 
-                contest_json['results'].append(ward_result)
-            else:
-                print "*"*60
-                print "ERROR: MISSING PRECINCT LEVEL DATA"
-                print "contest: %s" % contest_name
-                print "ward: %s" % ward
-                print "*"*60
+                    ward_result = {
+                        'ward': ward,
+                        'candidate_totals': candidate_totals,
+                        'results_by_precinct': results_by_precinct
+                    }
+
+                    contest_json['results'].append(ward_result)
+                else:
+                    print "*"*60
+                    print "ERROR: MISSING PRECINCT LEVEL DATA"
+                    print "contest: %s" % contest_name
+                    print "ward: %s" % ward
+                    print "*"*60
 
         return contest_json 
         
