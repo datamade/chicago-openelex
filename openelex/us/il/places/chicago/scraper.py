@@ -154,9 +154,10 @@ class Scraper(scrapelib.Scraper):
             try:
                 _, result = self.urlretrieve(url)
             except:
-                print "******** urlretrieve failed for %s, usingg requests instead" %url
-                print "_ %s" % _
-                print "*"*60
+                print "-"*60
+                print "contest: %s" %contest_name
+                print "urlretrieve failed for %s, using requests instead" %url
+                print "-"*60
                 result = requests.get(url)
 
             tree = lxml.html.fromstring(result.text)
@@ -171,66 +172,71 @@ class Scraper(scrapelib.Scraper):
             first_col_str = [tr.xpath("td")[0].xpath("string(.)") if tr.xpath("td") else None for tr in rows]
             if 'Total' in first_col_str:
                 idx_total_row = list(reversed(first_col_str)).index('Total')
-                total_td_list = tree.xpath("//table[1]//tr[last()-%s]//td" % idx_total_row)
-                totals = [td.xpath("string(.)") for td in total_td_list]
                 precinct_td_list = tree.xpath("//table[1]//tr[position() > 2 and not(position() > last()-%s)]//td" % (idx_total_row+1))
                 precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
             else:
-                precinct_td_list = tree.xpath("//table[1]//tr[position() > 2 and not(position() > last()-%s)]//td" % (idx_total_row+1))
+                precinct_td_list = tree.xpath("//table[1]//tr[position() > 2]//td")
                 precinct_data = [precinct_td_list[i:i+num_cols] for i in range(0, len(precinct_td_list), num_cols)]
+
+            if precinct_data:
                 totals = []
+                # loop through columns
                 for i in range(0, len(precinct_data[0])):
                     col_total = 0
+                    # loop through rows to get the sum of all values in a column
                     for row in precinct_data:
                         try:
                             parsed_num = int(row[i].xpath("string(.)"))
+                            col_total += parsed_num
                         except:
                             # sometimes these will be percentages but these will be ignored later anyways
-                            parsed_num = 0
-                        col_total += parsed_num
+                            col_total = None
                     totals.append(col_total)
-                print "TOTALS"
-                print totals
 
-
-            # TO-DO: distinguish between voting on candidates vs voting on Y/N vote?
-            if len(tbl_header) > 2: # more than one candidate running
-                candidates = tbl_header[2::2]
-                votes_totals = totals[2::2]
-            else: # only one candidate
-                candidates = [tbl_header[1]]
-                votes_totals = [totals[1]]
-
-            results_by_precinct = []
-            for row in precinct_data:
-                row_string = [td.xpath("string(.)") for td in row]
-                precinct = row_string[0]
-                
-                precinct_result = {
-                    'precinct': precinct,
-                    'candidate_totals': {}
-                }
-                if num_cols > 2:
-                    votes_precinct = row_string[2::2]
+                # TO-DO: distinguish between voting on candidates vs voting on Y/N vote?
+                if len(tbl_header) > 2: # more than one candidate running
+                    candidates = tbl_header[2::2]
+                    votes_totals = totals[2::2]
                 else: # only one candidate
-                    votes_precinct = [row_string[1]]
+                    candidates = [tbl_header[1]]
+                    votes_totals = [totals[1]]
 
-                for candidate, vote in zip(candidates, votes_precinct):
-                    precinct_result['candidate_totals'][candidate] = int(vote)
+                results_by_precinct = []
+                for row in precinct_data:
+                    row_string = [td.xpath("string(.)") for td in row]
+                    precinct = row_string[0]
+                    
+                    precinct_result = {
+                        'precinct': precinct,
+                        'candidate_totals': {}
+                    }
+                    if num_cols > 2:
+                        votes_precinct = row_string[2::2]
+                    else: # only one candidate
+                        votes_precinct = [row_string[1]]
 
-                results_by_precinct.append(precinct_result)
+                    for candidate, vote in zip(candidates, votes_precinct):
+                        precinct_result['candidate_totals'][candidate] = int(vote)
 
-            candidate_totals = {}
-            for candidate, votes_total in zip(candidates, votes_totals):
-                candidate_totals[candidate] = int(votes_total)
+                    results_by_precinct.append(precinct_result)
 
-            ward_result = {
-                'ward': ward,
-                'candidate_totals': candidate_totals,
-                'results_by_precinct': results_by_precinct
-            }
+                candidate_totals = {}
+                for candidate, votes_total in zip(candidates, votes_totals):
+                    candidate_totals[candidate] = int(votes_total)
 
-            contest_json['results'].append(ward_result)
+                ward_result = {
+                    'ward': ward,
+                    'candidate_totals': candidate_totals,
+                    'results_by_precinct': results_by_precinct
+                }
+
+                contest_json['results'].append(ward_result)
+            else:
+                print "*"*60
+                print "ERROR: MISSING PRECINCT LEVEL DATA"
+                print "contest: %s" % contest_name
+                print "ward: %s" % ward
+                print "*"*60
 
         return contest_json 
         
