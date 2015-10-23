@@ -29,7 +29,6 @@ class LoadResults(object):
 	def make_elec_metadata(self, election_name, filename):
 		parts = election_name.split(' - ')
 
-
 		if 'special' in parts[0].lower():
 			special = True
 
@@ -53,7 +52,7 @@ class LoadResults(object):
 			elif len(parts) == 3:
 				name, name_party, date = parts
 
-			if 'general' in name.lower():
+			if 'general' in name.lower() or 'geeral' in name.lower():
 				election_type = 'general'
 			elif 'primary' in name.lower():
 				election_type = 'primary'
@@ -79,14 +78,19 @@ class ChicagoLoader():
 
 	def load(self, elec_metadata):
 
+		try:
+			elec_date = datetime.datetime.strptime(elec_metadata['date'], '%m/%d/%y')
+		except:
+			elec_date = datetime.datetime.strptime(elec_metadata['date'], '%m/%d/%Y')
+
 		chicago_args = {
 			'created': datetime.datetime.now(),
 			'updated': datetime.datetime.now(),
 			'source': elec_metadata['filename'],
 			'election_id': elec_metadata['filename'], # change this
 			'state': 'IL',
-			'start_date': datetime.datetime.strptime(elec_metadata['date'], '%m/%d/%y'),
-			'end_date': datetime.datetime.strptime(elec_metadata['date'], '%m/%d/%y'), # when would start date be diff from end date?
+			'start_date': elec_date,
+			'end_date': elec_date, # when would start date be diff from end date?
 			'election_type': elec_metadata['election_type'],
 			'result_type': 'certified',
 		}
@@ -103,7 +107,7 @@ class ChicagoLoader():
 				contest_args = self.get_contest_args(chicago_args, contest['position'])
 
 				if contest_args:
-					print "   loading contest:", contest['position']
+					# print "   loading contest:", contest['position']
 					contest_results = self.make_results(contest_args, contest['results'])
 					results.extend(contest_results)
 				else:
@@ -113,26 +117,70 @@ class ChicagoLoader():
 			RawResult.objects.insert(results)
 
 	def get_contest_args(self, chicago_args, position):
+		
+		# load known offices
+		# detect judge races & ballot initiatives
 
-		office_mappings = {
-			'senator': 'US Senator',
-			'governor': 'Governor & Lieutenant Governor',
-			'attorney general': 'Attorney General',
-			'secretary of state': 'Secretary of State',
-			'comptroller': 'Comptroller',
-			'treasurer, state of illinois': 'Treasurer',
-		}
+		known_offices = [
+			# national
+			'president of the united states',
+			'president and vice president of the united states',
+			'pres and vice pres',
+			'senator, u.s.',
+			'united states senator',
+			'u.s. senator',
+			'u.s. representative',
+			'representative in congress',
+			'rep. in congress',
 
-		office = None
-		for office_substring in office_mappings:
+			# state
+			'governor',
+			'lieutenant governor',
+			'governor & lieutenant governor',
+			'secretary of state',
+			'attorney general',
+			'state\'s attorney',
+			'comptroller',
+			'treasurer',
+			'state senator',
+			'state representative',
+			'rep. in general assembly',
+			'rep. in gen. assembly',
+
+			# county
+			'commissioner',
+			'board president',
+			'president cook county board comm',
+			'clerk',
+			'sheriff',
+			'treasurer',
+			'assessor',
+			'commissioner, county board',
+			'board of review',
+			'recorder of deeds',
+
+			'supreme court'
+			'appellate court',
+			'apellate court',
+			'judge, cook county circuit',
+			'circuit court',
+			'circuit couut',
+			'subcircuit',
+
+			# city
+			'mayor',
+			'alderman',
+			'committeeman',
+		]
+
+		for office_substring in known_offices:
 			if office_substring in position.lower():
-				office = office_mappings[office_substring]
+				chicago_args['office'] = position.lower()
+				return chicago_args
 
-		if office:
-			chicago_args['office'] = office
-			return chicago_args
-		else:
-			return None
+		return None
+
+
 
 	def make_results(self, contest_args, results):
 
@@ -171,7 +219,4 @@ class ChicagoLoader():
 				raw_result_list.append(RawResult(**result_args))
 
 		return raw_result_list
-
-
-
 
