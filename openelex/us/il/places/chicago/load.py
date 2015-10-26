@@ -89,6 +89,7 @@ class ChicagoLoader():
 			'source': elec_metadata['filename'],
 			'election_id': elec_metadata['filename'], # change this
 			'state': 'IL',
+			'place': 'Chicago',
 			'start_date': elec_date,
 			'end_date': elec_date, # when would start date be diff from end date?
 			'election_type': elec_metadata['election_type'],
@@ -159,7 +160,7 @@ class ChicagoLoader():
 			'board of review',
 			'recorder of deeds',
 
-			'supreme court'
+			'supreme court',
 			'appellate court',
 			'apellate court',
 			'judge, cook county circuit',
