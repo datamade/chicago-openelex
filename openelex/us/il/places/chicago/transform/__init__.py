@@ -97,15 +97,15 @@ class CreateContestsTransform(BaseTransform):
         """
 
         office_query = {
-            'name': office_name
+            'name': office_name,
+            'state': STATE
         }
         office_name_raw = raw_result.office
 
-        if office_name is 'President':
+        if office_name == 'President':
             office_query['state'] = 'US'
 
         if office_name in self.district_offices:
-            office_query['state'] = STATE
             if re.findall("\d+", office_name_raw):
                 office_query['district'] = re.findall("\d+", office_name_raw)[0]
 
@@ -124,18 +124,27 @@ class CreateContestsTransform(BaseTransform):
                         'U.S. Senator')
         us_rep =    (   'u\.s\.\srepresentative|rep.+in\scongress',
                         'U.S. Representative')
+        state_senator = ('state\ssenator',
+                        'State Senator')
+        state_rep = (   'state\srepresentative|rep.+gen.+assembly',
+                        'State Representative')
+        gov_lt_gov = (  'governor.+lieutenant\sgovernor',
+                        'Governor & Lieutenant Governor')
+        lt_gov =    (   'lieutenant\sgovernor',
+                        'Lieutenant Governor')
+        gov =       (   'governor',
+                        'Governor')
+        sec_state = (   'secretary',
+                        'Secretary of State')
 
-        office_searches = [us_pres, us_senator, us_rep]
+        office_searches = [us_pres, us_senator, us_rep, state_senator, state_rep, gov_lt_gov, lt_gov, gov, sec_state]
 
         for srch_regex, clean_office_name in office_searches:
             if re.search(srch_regex, office):
                 print "*", office, "->", clean_office_name
                 return clean_office_name
 
-
-
         return None
-
 
 
 registry.register('il', CreateContestsTransform)

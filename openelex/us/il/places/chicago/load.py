@@ -138,6 +138,7 @@ class ChicagoLoader():
 			'governor',
 			'lieutenant governor',
 			'governor & lieutenant governor',
+			'governor and lieutenant governor',
 			'secretary of state',
 			'attorney general',
 			'state\'s attorney',
