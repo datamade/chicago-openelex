@@ -26,10 +26,10 @@ result_fields = meta_fields + ['reporting_level', 'jurisdiction',
 class BaseTransform(Transform):
 
     district_offices = set([
-        'U.S. Senate',
-        'U.S. House of Representatives',
-        'State Senate',
-        'State House of Representatives',
+        'U.S. Senator',
+        'U.S. Representative',
+        'State Senator',
+        'State Representative',
     ])
 
     def __init__(self):
@@ -56,7 +56,6 @@ class CreateContestsTransform(BaseTransform):
                     contests.append(contest)
                     seen.add(key)
 
-        print "SEEN:", seen
         Contest.objects.insert(contests, load_bulk=False)
 
     def _contest_key(self, raw_result):
@@ -100,15 +99,15 @@ class CreateContestsTransform(BaseTransform):
         office_query = {
             'name': office_name
         }
+        office_name_raw = raw_result.office
 
         if office_name is 'President':
             office_query['state'] = 'US'
-            office_query['place'] = None
 
         if office_name in self.district_offices:
             office_query['state'] = STATE
-            if raw_result.district:
-                office_query['district'] = raw_result.district
+            if re.findall("\d+", office_name_raw):
+                office_query['district'] = re.findall("\d+", office_name_raw)[0]
 
         return office_query
 
@@ -119,13 +118,21 @@ class CreateContestsTransform(BaseTransform):
 
         """
 
-        us_pres_regex = re.compile('president.+united\sstates|pres\sand\svice\spres', re.IGNORECASE)
-        if re.search(us_pres_regex, office):
-            return 'President'
+        us_pres =   (   'president.+united\sstates|pres\sand\svice\spres', 
+                        'President')
+        us_senator = (  'senator.+u\.s\.|u\.s\..+senator|united\sstates\ssenator',
+                        'U.S. Senator')
+        us_rep =    (   'u\.s\.\srepresentative|rep.+in\scongress',
+                        'U.S. Representative')
 
-        us_senator_regex = re.compile('senator.+u\.s\.|u\.s\..+senator|united\sstates\ssenator', re.IGNORECASE)
-        if re.search(us_senator_regex, office):
-            return 'U.S. Senate'
+        office_searches = [us_pres, us_senator, us_rep]
+
+        for srch_regex, clean_office_name in office_searches:
+            if re.search(srch_regex, office):
+                print "*", office, "->", clean_office_name
+                return clean_office_name
+
+
 
         return None
 
