@@ -58,7 +58,6 @@ class CreateContestsTransform(BaseTransform):
 
         print "SEEN:", seen
         Contest.objects.insert(contests, load_bulk=False)
-        logger.info("Created {} contests.".format(len(contests)))
 
     def _contest_key(self, raw_result):
         slug = raw_result.contest_slug
@@ -77,38 +76,44 @@ class CreateContestsTransform(BaseTransform):
         return {k: getattr(raw_result, k) for k in field_names}
 
     def _get_or_make_office(self, raw_result):
-        clean_name = self._clean_office(raw_result.office)
+        clean_name = self._clean_office_name(raw_result.office)
 
         if clean_name:
 
-            office_query = {
-                'state': STATE,
-                'place': PLACE,
-                'name': clean_name,
-                'district': ''
-            }
-
-            if office_query['name'] is 'President':
-                office_query['state'] = 'US'
-                office_query['place'] = None
-
-            if office_query['name'] in self.district_offices:
-                if raw_result.district:
-                    office_query['district'] = raw_result.district
-
-            key = Office.make_key(**office_query)
+            office_query = self._make_office_query(clean_name, raw_result)
 
             try:
                 office = Office.objects.get(**office_query)
                 return office
             except Office.DoesNotExist:
-                office = Office(state=STATE, place=office_query['place'], name=office_query['name'], district=office_query['district'])
-                Office.objects.insert([office])
+                office = Office(**office_query)
+                office.save()
                 return office
         else:
             return None
 
-    def _clean_office(self, office):
+    def _make_office_query(self, office_name, raw_result):
+        """
+        Gets the right state, place, district for an office
+        """
+
+        office_query = {
+            'name': office_name
+        }
+
+        if office_name is 'President':
+            office_query['state'] = 'US'
+            office_query['place'] = None
+
+        if office_name in self.district_offices:
+            office_query['state'] = STATE
+            if raw_result.district:
+                office_query['district'] = raw_result.district
+
+        return office_query
+
+
+    def _clean_office_name(self, office):
         """
         See: https://github.com/openelections/core/blob/dev/openelex/us/wa/load.py#L370
 
