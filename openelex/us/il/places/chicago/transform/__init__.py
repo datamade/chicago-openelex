@@ -112,7 +112,7 @@ class CreateContestsTransform(BaseTransform):
         if office_name in self.district_offices:
             if re.findall("\d+", office_name_raw):
                 office_query['district'] = re.findall("\d+", office_name_raw)[0]
-        if office_name == 'Subcircuit Court Judge':
+        if office_name == 'Circuit Court Judge':
             if re.findall("\d+", office_name_raw):
                 office_query['district'] = 'Subcircuit '+re.findall("\d+", office_name_raw)[0]
 
@@ -179,7 +179,7 @@ class CreateContestsTransform(BaseTransform):
         appellate_ct =  ('app?ellate\scourt',
                         'Appellate Court Judge')
         subcircuit_ct = ('judge.+circuit.+\d|judge.+\d.+sub|circuit.+court.+\d.+sub|judge.+subcircuit',
-                        'Subcircuit Court Judge')
+                        'Circuit Court Judge')
         circuit_ct_full = ('circuit.+judge|judge.+circuit',
                         'Circuit Court Judge')
 
