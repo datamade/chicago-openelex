@@ -116,6 +116,13 @@ class CreateContestsTransform(BaseTransform):
             if re.findall("\d+", office_name_raw):
                 office_query['district'] = 'Subcircuit '+re.findall("\d+", office_name_raw)[0]
 
+        if office_name in ['Mayor', 'Alderman', 'Ward Committeeman']:
+            office_query['place'] = PLACE
+
+        if office_name in ['Alderman', 'Ward Committeeman']:
+            if re.findall("\d+", office_name_raw):
+                office_query['district'] = 'Ward '+re.findall("\d+", office_name_raw)[0]
+
         if re.search('county', office_name_raw):
             office_query['county'] = COUNTY
 
@@ -183,14 +190,22 @@ class CreateContestsTransform(BaseTransform):
         circuit_ct_full = ('circuit.+judge|judge.+circuit',
                         'Circuit Court Judge')
 
+        mayor =         ('mayor',
+                        'Mayor')
+        alderman =      ('alderman',
+                        'Alderman')
+        committeeman =  ('committeeman',
+                        'Ward Committeeman')
+
 
 
 
         # the order of searches matters (b/c of overlapping keywords)
-        office_searches = [us_pres, us_senator, us_rep, state_senator, state_rep, /
-                          gov_lt_gov, lt_gov, gov, sec_state, aty_gen, state_aty, comptroller, /
+        office_searches = [us_pres, us_senator, us_rep, state_senator, state_rep,
+                          gov_lt_gov, lt_gov, gov, sec_state, aty_gen, state_aty, comptroller,
                           county_treas, state_treas, county_board_pres, county_board_comm,
                           sheriff, assessor, cir_ct_clerk, clerk]
+        office_searches = [mayor, alderman, committeeman]
 
         for srch_regex, clean_office_name in office_searches:
             if re.search(srch_regex, office):
