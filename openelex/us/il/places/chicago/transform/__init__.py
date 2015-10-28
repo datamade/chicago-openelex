@@ -6,6 +6,7 @@ from openelex.models import Candidate, Contest, Office, Party, RawResult, Result
 
 STATE = 'IL'
 PLACE = 'Chicago'
+COUNTY = 'Cook'
 
 
 meta_fields = ['source', 'election_id', 'state', 'place']
@@ -25,11 +26,14 @@ result_fields = meta_fields + ['reporting_level', 'jurisdiction',
 
 class BaseTransform(Transform):
 
+    # these are offices where we have to parse district
+    # out of the office name
     district_offices = set([
         'U.S. Senator',
         'U.S. Representative',
         'State Senator',
         'State Representative',
+        'County Commissioner'
     ])
 
     def __init__(self):
@@ -108,6 +112,12 @@ class CreateContestsTransform(BaseTransform):
         if office_name in self.district_offices:
             if re.findall("\d+", office_name_raw):
                 office_query['district'] = re.findall("\d+", office_name_raw)[0]
+        if office_name == 'Subcircuit Court Judge':
+            if re.findall("\d+", office_name_raw):
+                office_query['district'] = 'Subcircuit '+re.findall("\d+", office_name_raw)[0]
+
+        if re.search('county', office_name_raw):
+            office_query['county'] = COUNTY
 
         return office_query
 
@@ -118,26 +128,69 @@ class CreateContestsTransform(BaseTransform):
 
         """
 
-        us_pres =   (   'president.+united\sstates|pres\sand\svice\spres', 
+        us_pres =       ('president.+united\sstates|pres\sand\svice\spres', 
                         'President')
-        us_senator = (  'senator.+u\.s\.|u\.s\..+senator|united\sstates\ssenator',
+        us_senator =    ('senator.+u\.s\.|u\.s\..+senator|united\sstates\ssenator',
                         'U.S. Senator')
-        us_rep =    (   'u\.s\.\srepresentative|rep.+in\scongress',
+        us_rep =        ('u\.s\.\srepresentative|rep.+in\scongress',
                         'U.S. Representative')
+
         state_senator = ('state\ssenator',
                         'State Senator')
-        state_rep = (   'state\srepresentative|rep.+gen.+assembly',
+        state_rep =     ('state\srepresentative|rep.+gen.+assembly',
                         'State Representative')
-        gov_lt_gov = (  'governor.+lieutenant\sgovernor',
+        gov_lt_gov =    ('governor.+lieutenant\sgovernor',
                         'Governor & Lieutenant Governor')
-        lt_gov =    (   'lieutenant\sgovernor',
+        lt_gov =        ('lieutenant\sgovernor',
                         'Lieutenant Governor')
-        gov =       (   'governor',
+        gov =           ('governor',
                         'Governor')
-        sec_state = (   'secretary',
+        sec_state =     ('secretary',
                         'Secretary of State')
+        aty_gen =       ('attorney\sgeneral',
+                        'Attorney General')
+        state_aty =     ('state.+attorney',
+                        'State\'s Attorney')
+        comptroller =   ('comptroller',
+                        'Comptroller')
+        county_treas =  ('county.+treasurer|treasurer.+county',
+                        'County Treasurer') # should 'County' be in the office name?
+        state_treas =   ('treasurer',
+                        'Treasurer')
 
-        office_searches = [us_pres, us_senator, us_rep, state_senator, state_rep, gov_lt_gov, lt_gov, gov, sec_state]
+        # should 'County' be in the office name?
+        county_board_pres = ('board.+pres.+county|county.+board.+pres',
+                        'County Board President')
+        county_board_comm = ('county.+comm|comm.+county',
+                        'County Commissioner')
+        sheriff =       ('sheriff',
+                        'County Sheriff')
+        assessor =      ('assessor',
+                        'County Assessor')
+        rec_deeds =     ('deeds',
+                        'County Recorder of Deeds')
+        cir_ct_clerk =  ('circuit.+clerk|clerk.+circuit',
+                        'County Circuit Court Clerk')
+        clerk =         ('clerk',
+                        'County Clerk')
+
+        supreme_ct =    ('supreme\scourt',
+                        'Supreme Court Judge')
+        appellate_ct =  ('app?ellate\scourt',
+                        'Appellate Court Judge')
+        subcircuit_ct = ('judge.+circuit.+\d|judge.+\d.+sub|circuit.+court.+\d.+sub|judge.+subcircuit',
+                        'Subcircuit Court Judge')
+        circuit_ct_full = ('circuit.+judge|judge.+circuit',
+                        'Circuit Court Judge')
+
+
+
+
+        # the order of searches matters (b/c of overlapping keywords)
+        office_searches = [us_pres, us_senator, us_rep, state_senator, state_rep, /
+                          gov_lt_gov, lt_gov, gov, sec_state, aty_gen, state_aty, comptroller, /
+                          county_treas, state_treas, county_board_pres, county_board_comm,
+                          sheriff, assessor, cir_ct_clerk, clerk]
 
         for srch_regex, clean_office_name in office_searches:
             if re.search(srch_regex, office):
