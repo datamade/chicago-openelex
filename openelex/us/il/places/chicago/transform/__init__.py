@@ -1,5 +1,6 @@
 from datetime import datetime
 import re
+import probablepeople as pp
 
 from openelex.base.transform import Transform, registry
 from openelex.models import Candidate, Contest, Office, Party, RawResult, Result
@@ -38,33 +39,57 @@ class BaseTransform(Transform):
 
     def __init__(self):
         super(BaseTransform, self).__init__()
+        self._contest_cache = {}
 
     def get_raw_results(self):
         return RawResult.objects.filter(state=STATE, place=PLACE).no_cache()
 
-class CreateContestsTransform(BaseTransform):
-    name = 'chicago_create_unique_contests'
+    def get_judge_candidate_fields(self, raw_result):
+        fields = self._get_fields(raw_result, candidate_fields)
+        fields['full_name'] = None
+        return fields
 
-    def __call__(self):
-        contests = []
-        seen = set()
+    def get_candidate_fields(self, raw_result):
+        fields = self._get_fields(raw_result, candidate_fields)
 
-        for result in self.get_raw_results():
-            key = self._contest_key(result)
-            if key not in seen:
-                fields = self.get_contest_fields(result)
-                if fields:
-                    fields['updated'] = datetime.now()
-                    fields['created'] = datetime.now()
-                    contest = Contest(**fields)
-                    contests.append(contest)
-                    seen.add(key)
+        name = pp.tag(raw_result.full_name)
 
-        Contest.objects.insert(contests, load_bulk=False)
+        # split out name chunks here
 
-    def _contest_key(self, raw_result):
-        slug = raw_result.contest_slug
-        return (raw_result.election_id, slug)
+        fields['full_name'] = raw_result.full_name
+
+        return fields
+
+    def _get_fields(self, raw_result, field_names):
+        return {k: getattr(raw_result, k) for k in field_names}
+
+    def get_contest(self, raw_result):
+        """
+        Returns the Contest model instance for a given RawResult.
+
+        Caches the result in memory to reduce the number of calls to the
+        datastore.
+        """
+        key = "%s-%s" % (raw_result.election_id, raw_result.contest_slug)
+
+        try:
+            return self._contest_cache[key]
+        except KeyError:
+            fields = self.get_contest_fields(raw_result)
+
+            if fields:
+                fields.pop('source')
+                try:
+                    try:
+                        contest = Contest.objects.filter(**fields)[0]
+                    except IndexError:
+                        contest = Contest.objects.get(**fields)
+                except Exception:
+                    print fields
+                    print "\n"
+                    raise
+                self._contest_cache[key] = contest
+                return contest
 
     def get_contest_fields(self, raw_result):
         fields = self._get_fields(raw_result, contest_fields)
@@ -74,9 +99,6 @@ class CreateContestsTransform(BaseTransform):
             return fields
         else:
             return None
-
-    def _get_fields(self, raw_result, field_names):
-        return {k: getattr(raw_result, k) for k in field_names}
 
     def _get_or_make_office(self, raw_result):
         clean_name = self._clean_office_name(raw_result.office)
@@ -94,40 +116,6 @@ class CreateContestsTransform(BaseTransform):
                 return office
         else:
             return None
-
-    def _make_office_query(self, office_name, raw_result):
-        """
-        Gets the right state, place, district for an office
-        """
-
-        office_query = {
-            'name': office_name,
-            'state': STATE
-        }
-        office_name_raw = raw_result.office
-
-        if office_name == 'President':
-            office_query['state'] = 'US'
-
-        if office_name in self.district_offices:
-            if re.findall("\d+", office_name_raw):
-                office_query['district'] = re.findall("\d+", office_name_raw)[0]
-        if office_name == 'Circuit Court Judge':
-            if re.findall("\d+", office_name_raw):
-                office_query['district'] = 'Subcircuit '+re.findall("\d+", office_name_raw)[0]
-
-        if office_name in ['Mayor', 'Alderman', 'Ward Committeeman']:
-            office_query['place'] = PLACE
-
-        if office_name in ['Alderman', 'Ward Committeeman']:
-            if re.findall("\d+", office_name_raw):
-                office_query['district'] = 'Ward '+re.findall("\d+", office_name_raw)[0]
-
-        if re.search('county', office_name_raw):
-            office_query['county'] = COUNTY
-
-        return office_query
-
 
     def _clean_office_name(self, office):
         """
@@ -197,23 +185,112 @@ class CreateContestsTransform(BaseTransform):
         committeeman =  ('committeeman',
                         'Ward Committeeman')
 
-
-
-
         # the order of searches matters (b/c of overlapping keywords)
         office_searches = [us_pres, us_senator, us_rep, state_senator, state_rep,
                           gov_lt_gov, lt_gov, gov, sec_state, aty_gen, state_aty, comptroller,
                           county_treas, state_treas, county_board_pres, county_board_comm,
                           sheriff, assessor, cir_ct_clerk, clerk]
-        office_searches = [mayor, alderman, committeeman]
 
         for srch_regex, clean_office_name in office_searches:
             if re.search(srch_regex, office):
-                print "*", office, "->", clean_office_name
                 return clean_office_name
 
         return None
 
+    def _make_office_query(self, office_name, raw_result):
+        """
+        Gets the right state, place, district for an office
+        """
+
+        office_query = {
+            'name': office_name,
+            'state': STATE
+        }
+        office_name_raw = raw_result.office
+
+        if office_name == 'President':
+            office_query['state'] = 'US'
+
+        if office_name in self.district_offices:
+            if re.findall("\d+", office_name_raw):
+                office_query['district'] = re.findall("\d+", office_name_raw)[0]
+        if office_name == 'Circuit Court Judge':
+            if re.findall("\d+", office_name_raw):
+                office_query['district'] = 'Subcircuit '+re.findall("\d+", office_name_raw)[0]
+
+        if office_name in ['Mayor', 'Alderman', 'Ward Committeeman']:
+            office_query['place'] = PLACE
+
+        if office_name in ['Alderman', 'Ward Committeeman']:
+            if re.findall("\d+", office_name_raw):
+                office_query['district'] = 'Ward '+re.findall("\d+", office_name_raw)[0]
+
+        if re.search('county', office_name_raw):
+            office_query['county'] = COUNTY
+
+        return office_query
+
+
+class CreateContestsTransform(BaseTransform):
+    name = 'chicago_create_unique_contests'
+
+    def __call__(self):
+        contests = []
+        seen = set()
+
+        for result in self.get_raw_results():
+            key = self._contest_key(result)
+            if key not in seen:
+                fields = self.get_contest_fields(result)
+                if fields:
+                    fields['updated'] = datetime.now()
+                    fields['created'] = datetime.now()
+                    contest = Contest(**fields)
+                    contests.append(contest)
+                    seen.add(key)
+
+        Contest.objects.insert(contests, load_bulk=False)
+
+    def _contest_key(self, raw_result):
+        slug = raw_result.contest_slug
+        return (raw_result.election_id, slug)
+
+
+class CreateCandidatesTransform(BaseTransform):
+    name = 'create_unique_candidates'
+
+    def __init__(self):
+        super(CreateCandidatesTransform, self).__init__()
+
+    def __call__(self):
+        candidates = []
+        seen = set()
+
+        for rr in self.get_raw_results():
+            key = (rr.election_id, rr.contest_slug, rr.candidate_slug)
+            if key not in seen:
+
+                if rr.full_name.lower().strip() in ['yes', 'no']:
+                    fields = self.get_judge_candidate_fields(rr)
+                else:
+                    fields = self.get_candidate_fields(rr)
+
+                if fields['full_name']:
+                    fields['contest'] = self.get_contest(rr)
+                    candidate = Candidate(**fields)
+                    candidates.append(candidate)
+                    seen.add(key)
+
+        Candidate.objects.insert(candidates, load_bulk=False)
+        logger.info("Created {} candidates.".format(len(candidates)))
+
+
+    def reverse(self):
+        old = Candidate.objects.filter(state=STATE)
+        print "\tDeleting %d previously created candidates" % old.count()
+        old.delete()
+
 
 registry.register('il', CreateContestsTransform)
+registry.register('il', CreateCandidatesTransform)
 
