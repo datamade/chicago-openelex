@@ -1,3 +1,4 @@
 scrapelib==1.0.0
 lxml==3.4.4
 python-dateutil==2.4.2
+probablepeople==0.3.2
