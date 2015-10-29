@@ -52,11 +52,23 @@ class BaseTransform(Transform):
     def get_candidate_fields(self, raw_result):
         fields = self._get_fields(raw_result, candidate_fields)
 
-        name = pp.tag(raw_result.full_name)
+        try:
+            name_parts, name_type = pp.tag(raw_result.full_name)
 
-        # split out name chunks here
+            if name_type != 'Person':
+                print "******** NOT A PERSON ********"
+                print fields
+                print name_parts
+                fields['full_name'] = None
+                return fields
 
-        fields['full_name'] = raw_result.full_name
+            fields['given_name'] = name_parts.get('GivenName')
+            fields['family_name'] = name_parts.get('Surname')
+            fields['full_name'] = raw_result.full_name
+
+        except pp.RepeatedLabelError:
+            print "UNABLE TO TAG:", raw_result.full_name
+            fields['full_name'] = raw_result.full_name
 
         return fields
 
@@ -72,24 +84,22 @@ class BaseTransform(Transform):
         """
         key = "%s-%s" % (raw_result.election_id, raw_result.contest_slug)
 
-        try:
-            return self._contest_cache[key]
-        except KeyError:
-            fields = self.get_contest_fields(raw_result)
+        fields = self.get_contest_fields(raw_result)
 
-            if fields:
-                fields.pop('source')
+        if fields and fields['office']:
+            fields.pop('source')
+            try:
                 try:
-                    try:
-                        contest = Contest.objects.filter(**fields)[0]
-                    except IndexError:
-                        contest = Contest.objects.get(**fields)
-                except Exception:
-                    print fields
-                    print "\n"
-                    raise
-                self._contest_cache[key] = contest
-                return contest
+                    contest = Contest.objects.filter(**fields)[0]
+                except IndexError:
+                    contest = Contest.objects.get(**fields)
+            except Exception:
+                print fields
+                print "\n"
+                raise
+            return contest
+        else:
+            return None
 
     def get_contest_fields(self, raw_result):
         fields = self._get_fields(raw_result, contest_fields)
@@ -106,7 +116,6 @@ class BaseTransform(Transform):
         if clean_name:
 
             office_query = self._make_office_query(clean_name, raw_result)
-
             try:
                 office = Office.objects.get(**office_query)
                 return office
@@ -154,7 +163,7 @@ class BaseTransform(Transform):
                         'Treasurer')
 
         # should 'County' be in the office name?
-        county_board_pres = ('board.+pres.+county|county.+board.+pres',
+        county_board_pres = ('board.+pres.+county|county.+board.+pres|pres.+county.+board',
                         'County Board President')
         county_board_comm = ('county.+comm|comm.+county',
                         'County Commissioner')
@@ -189,7 +198,9 @@ class BaseTransform(Transform):
         office_searches = [us_pres, us_senator, us_rep, state_senator, state_rep,
                           gov_lt_gov, lt_gov, gov, sec_state, aty_gen, state_aty, comptroller,
                           county_treas, state_treas, county_board_pres, county_board_comm,
-                          sheriff, assessor, cir_ct_clerk, clerk]
+                          sheriff, assessor, rec_deeds, cir_ct_clerk, clerk,
+                          supreme_ct, appellate_ct, subcircuit_ct, circuit_ct_full,
+                          mayor, alderman, committeeman]
 
         for srch_regex, clean_office_name in office_searches:
             if re.search(srch_regex, office):
@@ -214,9 +225,13 @@ class BaseTransform(Transform):
         if office_name in self.district_offices:
             if re.findall("\d+", office_name_raw):
                 office_query['district'] = re.findall("\d+", office_name_raw)[0]
+            else:
+                office_query['district'] = None
         if office_name == 'Circuit Court Judge':
             if re.findall("\d+", office_name_raw):
                 office_query['district'] = 'Subcircuit '+re.findall("\d+", office_name_raw)[0]
+            else:
+                office_query['district'] = None
 
         if office_name in ['Mayor', 'Alderman', 'Ward Committeeman']:
             office_query['place'] = PLACE
@@ -225,7 +240,7 @@ class BaseTransform(Transform):
             if re.findall("\d+", office_name_raw):
                 office_query['district'] = 'Ward '+re.findall("\d+", office_name_raw)[0]
 
-        if re.search('county', office_name_raw):
+        if re.search('county', office_name_raw) and 'judge' not in office_name.lower():
             office_query['county'] = COUNTY
 
         return office_query
@@ -246,6 +261,7 @@ class CreateContestsTransform(BaseTransform):
                     fields['updated'] = datetime.now()
                     fields['created'] = datetime.now()
                     contest = Contest(**fields)
+                    print "   %s", contest
                     contests.append(contest)
                     seen.add(key)
 
@@ -257,7 +273,7 @@ class CreateContestsTransform(BaseTransform):
 
 
 class CreateCandidatesTransform(BaseTransform):
-    name = 'create_unique_candidates'
+    name = 'chicago_create_unique_candidates'
 
     def __init__(self):
         super(CreateCandidatesTransform, self).__init__()
@@ -276,14 +292,15 @@ class CreateCandidatesTransform(BaseTransform):
                     fields = self.get_candidate_fields(rr)
 
                 if fields['full_name']:
-                    fields['contest'] = self.get_contest(rr)
-                    candidate = Candidate(**fields)
-                    candidates.append(candidate)
-                    seen.add(key)
+                    contest = self.get_contest(rr)
+                    if contest:
+                        fields['contest'] = contest
+                        candidate = Candidate(**fields)
+                        print "*", candidate.full_name
+                        candidates.append(candidate)
+                        seen.add(key)
 
         Candidate.objects.insert(candidates, load_bulk=False)
-        logger.info("Created {} candidates.".format(len(candidates)))
-
 
     def reverse(self):
         old = Candidate.objects.filter(state=STATE)
