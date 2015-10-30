@@ -30,10 +30,10 @@ class BaseTransform(Transform):
     # these are offices where we have to parse district
     # out of the office name
     district_offices = set([
-        'U.S. Senator',
-        'U.S. Representative',
-        'State Senator',
-        'State Representative',
+        'U.S. Senate',
+        'U.S. House',
+        'State Senate',
+        'State House',
         'County Commissioner'
     ])
 
@@ -149,14 +149,14 @@ class BaseTransform(Transform):
         us_pres =       ('president.+united\sstates|pres\sand\svice\spres', 
                         'President')
         us_senator =    ('senator.+u\.s\.|u\.s\..+senator|united\sstates\ssenator',
-                        'U.S. Senator')
+                        'U.S. Senate')
         us_rep =        ('u\.s\.\srepresentative|rep.+in\scongress',
-                        'U.S. Representative')
+                        'U.S. House')
 
         state_senator = ('state\ssenator',
-                        'State Senator')
+                        'State Senate')
         state_rep =     ('state\srepresentative|rep.+gen.+assembly',
-                        'State Representative')
+                        'State House')
         gov_lt_gov =    ('governor.+lieutenant\sgovernor',
                         'Governor & Lieutenant Governor')
         lt_gov =        ('lieutenant\sgovernor',
