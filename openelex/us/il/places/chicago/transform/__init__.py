@@ -71,6 +71,11 @@ class BaseTransform(Transform):
 
             fields['given_name'] = name_parts.get('GivenName')
             fields['family_name'] = name_parts.get('Surname')
+            if 'SuffixGenerational' in name_parts:
+                fields['suffix'] = name_parts['SuffixGenerational']
+            if 'Nickname' in name_parts:
+                fields['additional_name'] = name_parts['Nickname']
+
             fields['full_name'] = full_name
 
         except pp.RepeatedLabelError:
