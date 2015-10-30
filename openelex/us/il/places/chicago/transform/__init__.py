@@ -51,24 +51,33 @@ class BaseTransform(Transform):
 
     def get_candidate_fields(self, raw_result):
         fields = self._get_fields(raw_result, candidate_fields)
+        full_name = raw_result.full_name.strip()
+
+        if full_name.lower() not in ['no candidate', 'candidate withdrew']:
+            fields['full_name'] = None
+            return fields
 
         try:
-            name_parts, name_type = pp.tag(raw_result.full_name)
+            name_parts, name_type = pp.tag(full_name)
 
             if name_type != 'Person':
-                print "******** NOT A PERSON ********"
-                print fields
-                print name_parts
-                fields['full_name'] = None
+                print "***************************"
+                print "NOT A PERSON:", fields['full_name']
+                print "fields:", fields
+                print "tagged name:", name_parts
+                print "***************************"
+                fields['full_name'] = full_name
                 return fields
 
             fields['given_name'] = name_parts.get('GivenName')
             fields['family_name'] = name_parts.get('Surname')
-            fields['full_name'] = raw_result.full_name
+            fields['full_name'] = full_name
 
         except pp.RepeatedLabelError:
-            print "UNABLE TO TAG:", raw_result.full_name
-            fields['full_name'] = raw_result.full_name
+            print "***************************"
+            print "UNABLE TO TAG:", full_name
+            print "***************************"
+            fields['full_name'] = full_name
 
         return fields
 
@@ -298,7 +307,9 @@ class CreateCandidatesTransform(BaseTransform):
                         candidate = Candidate(**fields)
                         print "*", candidate.full_name
                         candidates.append(candidate)
-                        seen.add(key)
+
+                seen.add(key)
+
 
         Candidate.objects.insert(candidates, load_bulk=False)
 
