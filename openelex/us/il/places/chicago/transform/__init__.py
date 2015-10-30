@@ -324,6 +324,75 @@ class CreateCandidatesTransform(BaseTransform):
         old.delete()
 
 
+class CreateResultsTransform(BaseTransform): 
+    name = 'chicago_create_unique_results'
+
+    auto_reverse = True
+
+    def __init__(self):
+        super(CreateResultsTransform, self).__init__()
+        self._candidate_cache = {}
+
+    def __call__(self):
+        results = []
+
+        for rr in self.get_rawresults():
+            fields = self._get_fields(rr, result_fields)
+            fields['contest'] = self.get_contest(rr)
+            fields['candidate'] = self.get_candidate(rr, extra={
+                'contest': fields['contest'],
+            })
+            fields['contest'] = fields['candidate'].contest 
+            fields['raw_result'] = rr
+            party = self.get_party(rr)
+            if party:
+                fields['party'] = party.abbrev
+            fields['winner'] = self._parse_winner(rr)
+            fields['jurisdiction'] = self._strip_leading_zeros(rr.jurisdiction)
+            fields = self._alter_result_fields(fields, rr)
+            result = Result(**fields)
+            results.append(result)
+
+        self._create_results(results)
+
+    def get_results(self):
+        election_ids = self.get_rawresults().distinct('election_id')
+        return Result.objects.filter(election_id__in=election_ids)
+
+    def get_rawresults(self):
+        return RawResult.objects
+
+    def get_candidate(self, raw_result, extra={}):
+        """
+        Get the Candidate model for a RawResult
+
+        Keyword arguments:
+
+        * extra - Dictionary of extra query parameters that will
+                  be used to select the candidate. 
+        """
+        key = (raw_result.election_id, raw_result.contest_slug,
+            raw_result.candidate_slug)
+        try:
+            return self._candidate_cache[key]
+        except KeyError:
+            fields = self.get_candidate_fields(raw_result)
+            fields.update(extra)
+            del fields['source']
+            try:
+                candidate = Candidate.objects.get(**fields)
+            except Candidate.DoesNotExist:
+                print fields 
+                raise
+            self._candidate_cache[key] = candidate 
+            return candidate
+
+    def reverse(self):
+        old_results = self.get_results()
+        print "\tDeleting %d previously loaded results" % old_results.count() 
+        old_results.delete()
+
+
 registry.register('il', CreateContestsTransform)
 registry.register('il', CreateCandidatesTransform)
-
+registry.register('il', CreateResultsTransform)
