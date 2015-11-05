@@ -53,7 +53,11 @@ class BaseTransform(Transform):
         fields = self._get_fields(raw_result, candidate_fields)
         full_name = raw_result.full_name.strip()
 
-        if full_name.lower() not in ['no candidate', 'candidate withdrew']:
+        if full_name.lower() in ['yes', 'no']:
+            fields = self.get_judge_candidate_fields(raw_result)
+            return fields
+
+        if full_name.lower() in ['no candidate', 'candidate withdrew']:
             fields['full_name'] = None
             return fields
 
@@ -275,7 +279,7 @@ class CreateContestsTransform(BaseTransform):
                     fields['updated'] = datetime.now()
                     fields['created'] = datetime.now()
                     contest = Contest(**fields)
-                    print "   %s", contest
+                    print "   %s" %contest
                     contests.append(contest)
                     seen.add(key)
 
@@ -300,17 +304,13 @@ class CreateCandidatesTransform(BaseTransform):
             key = (rr.election_id, rr.contest_slug, rr.candidate_slug)
             if key not in seen:
 
-                if rr.full_name.lower().strip() in ['yes', 'no']:
-                    fields = self.get_judge_candidate_fields(rr)
-                else:
-                    fields = self.get_candidate_fields(rr)
+                fields = self.get_candidate_fields(rr)
 
                 if fields['full_name']:
                     contest = self.get_contest(rr)
                     if contest:
                         fields['contest'] = contest
                         candidate = Candidate(**fields)
-                        print "*", candidate.full_name
                         candidates.append(candidate)
 
                 seen.add(key)
@@ -336,22 +336,38 @@ class CreateResultsTransform(BaseTransform):
     def __call__(self):
         results = []
 
+        # for now, skip offices that don't have candidates populated
+        # e.g. retaining judges, ballot initiatives
+        office_to_skip = None
         for rr in self.get_rawresults():
-            fields = self._get_fields(rr, result_fields)
-            fields['contest'] = self.get_contest(rr)
-            fields['candidate'] = self.get_candidate(rr, extra={
-                'contest': fields['contest'],
-            })
-            fields['contest'] = fields['candidate'].contest 
-            fields['raw_result'] = rr
-            party = self.get_party(rr)
-            if party:
-                fields['party'] = party.abbrev
-            fields['winner'] = self._parse_winner(rr)
-            fields['jurisdiction'] = self._strip_leading_zeros(rr.jurisdiction)
-            fields = self._alter_result_fields(fields, rr)
-            result = Result(**fields)
-            results.append(result)
+            this_office = rr.election_id+rr.office
+
+            if this_office != office_to_skip:
+                if rr.full_name.strip().lower() in ['yes', 'no', 'no candidate', 'candidate withdrew']:
+                    office_to_skip = this_office
+                    pass
+                else:
+                    try:
+                        fields = self._get_fields(rr, result_fields)
+                        fields['contest'] = self.get_contest(rr)
+                        fields['candidate'] = self.get_candidate(rr, extra={
+                            'contest': fields['contest'],
+                        })
+                        fields['contest'] = fields['candidate'].contest 
+                        fields['raw_result'] = rr
+
+                        result = Result(**fields)
+                        results.append(result)
+                    except Candidate.MultipleObjectsReturned:
+                        print "*"*50
+                        print "multiple objects returned"
+                        print "fields: %s" %fields
+
+                    # for now, add results in chunks
+                    # instead of all at once at the end
+                    if len(results) > 100:
+                        self._create_results(results)
+                        results = []
 
         self._create_results(results)
 
@@ -382,10 +398,16 @@ class CreateResultsTransform(BaseTransform):
             try:
                 candidate = Candidate.objects.get(**fields)
             except Candidate.DoesNotExist:
-                print fields 
                 raise
             self._candidate_cache[key] = candidate 
             return candidate
+
+    def _create_results(self, results):
+        """
+        Create the Result objects in the database.
+        """
+        Result.objects.insert(results, load_bulk=False)
+        print "Created %d results." % len(results)
 
     def reverse(self):
         old_results = self.get_results()
