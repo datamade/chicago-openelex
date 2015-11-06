@@ -39,6 +39,7 @@ class BaseTransform(Transform):
 
     def __init__(self):
         super(BaseTransform, self).__init__()
+        self._office_cache = {}
         self._contest_cache = {}
 
     def get_raw_results(self):
@@ -134,6 +135,7 @@ class BaseTransform(Transform):
         if clean_name:
 
             office_query = self._make_office_query(clean_name, raw_result)
+
             try:
                 office = Office.objects.get(**office_query)
                 return office
@@ -347,25 +349,26 @@ class CreateResultsTransform(BaseTransform):
                     office_to_skip = this_office
                     pass
                 else:
-                    try:
-                        fields = self._get_fields(rr, result_fields)
-                        fields['contest'] = self.get_contest(rr)
-                        fields['candidate'] = self.get_candidate(rr, extra={
-                            'contest': fields['contest'],
-                        })
-                        fields['contest'] = fields['candidate'].contest 
-                        fields['raw_result'] = rr
+                    fields = self._get_fields(rr, result_fields)
+                    fields['contest'] = self.get_contest(rr)
+                    if fields['contest']:
+                        try:
+                            fields['candidate'] = self.get_candidate(rr, extra={
+                                'contest': fields['contest'],
+                            })
+                            fields['contest'] = fields['candidate'].contest 
+                            fields['raw_result'] = rr
 
-                        result = Result(**fields)
-                        results.append(result)
-                    except Candidate.MultipleObjectsReturned:
-                        print "*"*50
-                        print "multiple objects returned"
-                        print "fields: %s" %fields
+                            result = Result(**fields)
+                            results.append(result)
+                        except Candidate.MultipleObjectsReturned:
+                            print "*"*50
+                            print "multiple candidates returned"
+                            print "fields: %s" %fields
 
                     # for now, add results in chunks
                     # instead of all at once at the end
-                    if len(results) > 100:
+                    if len(results) >= 1000:
                         self._create_results(results)
                         results = []
 
