@@ -302,6 +302,15 @@ class CreateContestsTransform(BaseTransform):
         slug = raw_result.contest_slug
         return (raw_result.election_id, slug)
 
+    def reverse(self):
+        old = Office.objects.filter(state=STATE)
+        print "\tDeleting %d previously created offices" % old.count()
+        old.delete()
+
+        old = Contest.objects.filter(state=STATE)
+        print "\tDeleting %d previously created contests" % old.count()
+        old.delete()
+
 
 class CreateCandidatesTransform(BaseTransform):
     name = 'chicago_create_unique_candidates'
