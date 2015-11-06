@@ -103,22 +103,27 @@ class BaseTransform(Transform):
         """
         key = "%s-%s" % (raw_result.election_id, raw_result.contest_slug)
 
-        fields = self.get_contest_fields(raw_result)
+        try:
+            return self._contest_cache[key]
+        except KeyError:
+            fields = self.get_contest_fields(raw_result)
 
-        if fields and fields['office']:
-            fields.pop('source')
-            try:
+            if fields and fields['office']:
+                fields.pop('source')
                 try:
-                    contest = Contest.objects.filter(**fields)[0]
-                except IndexError:
-                    contest = Contest.objects.get(**fields)
-            except Exception:
-                print fields
-                print "\n"
-                raise
-            return contest
-        else:
-            return None
+                    try:
+                        contest = Contest.objects.filter(**fields)[0]
+                    except IndexError:
+                        contest = Contest.objects.get(**fields)
+                except Exception:
+                    print fields
+                    print "\n"
+                    raise
+                self._contest_cache[key] = contest
+                return contest
+            else:
+                self._contest_cache[key] = None
+                return None
 
     def get_contest_fields(self, raw_result):
         fields = self._get_fields(raw_result, contest_fields)
@@ -135,14 +140,20 @@ class BaseTransform(Transform):
         if clean_name:
 
             office_query = self._make_office_query(clean_name, raw_result)
+            key = Office.make_key(**office_query)
 
             try:
-                office = Office.objects.get(**office_query)
-                return office
-            except Office.DoesNotExist:
-                office = Office(**office_query)
-                office.save()
-                return office
+                return self._office_cache[key]
+            except KeyError:
+                try:
+                    office = Office.objects.get(**office_query)
+                    self._office_cache[key] = office
+                    return office
+                except Office.DoesNotExist:
+                    office = Office(**office_query)
+                    office.save()
+                    self._office_cache[key] = office
+                    return office
         else:
             return None
 
