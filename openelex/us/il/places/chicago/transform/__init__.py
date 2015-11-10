@@ -119,10 +119,10 @@ class BaseTransform(Transform):
                     print fields
                     print "\n"
                     raise
-                self._contest_cache[key] = contest
+                # self._contest_cache[key] = contest
                 return contest
             else:
-                self._contest_cache[key] = None
+                # self._contest_cache[key] = None
                 return None
 
     def get_contest_fields(self, raw_result):
@@ -399,7 +399,7 @@ class CreateResultsTransform(BaseTransform):
         return Result.objects.filter(election_id__in=election_ids)
 
     def get_rawresults(self):
-        return RawResult.objects
+        return RawResult.objects.no_cache()
 
     def get_candidate(self, raw_result, extra={}):
         """
@@ -422,14 +422,14 @@ class CreateResultsTransform(BaseTransform):
                 candidate = Candidate.objects.get(**fields)
             except Candidate.DoesNotExist:
                 raise
-            self._candidate_cache[key] = candidate 
+            # self._candidate_cache[key] = candidate 
             return candidate
 
     def _create_results(self, results):
         """
         Create the Result objects in the database.
         """
-        Result.objects.insert(results, load_bulk=False)
+        Result.objects.no_cache().insert(results, load_bulk=False)
         print "Created %d results." % len(results)
 
     def reverse(self):
