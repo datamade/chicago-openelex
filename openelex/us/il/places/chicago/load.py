@@ -4,6 +4,8 @@ import datetime
 
 from openelex.models import RawResult
 
+STATE = 'IL'
+PLACE = 'Chicago'
 
 class LoadResults(object):
 	"""
@@ -33,10 +35,10 @@ class LoadResults(object):
 			special = True
 
 			if len(parts) == 3:
-				name, seat, date = parts
+				name, seat, raw_date = parts
 				name_party = None
 			elif len(parts) == 4:
-				name, seat, name_party, date = parts
+				name, seat, name_party, raw_date = parts
 
 			if 'primary' in name.lower():
 				election_type = 'primary'
@@ -47,10 +49,10 @@ class LoadResults(object):
 			special = False
 
 			if len(parts) == 2:
-				name, date = parts
+				name, raw_date = parts
 				name_party = None
 			elif len(parts) == 3:
-				name, name_party, date = parts
+				name, name_party, raw_date = parts
 
 			if 'general' in name.lower() or 'geeral' in name.lower():
 				election_type = 'general'
@@ -61,13 +63,27 @@ class LoadResults(object):
 			else:
 				election_type = None
 
+		if 'municipal' in name.lower():
+			municipal = True
+		else:
+			municipal = False
+
+		raw_date = raw_date.strip()
+		try:
+			elec_date = datetime.datetime.strptime(raw_date, '%m/%d/%y')
+		except:
+			elec_date = datetime.datetime.strptime(raw_date, '%m/%d/%Y')
+
 		elec_metadata = {
 			'filename': filename,
-			'date': date.strip(),
+			'raw_date': raw_date,
 			'name': name,
 			'election_type': election_type,
 			'special': special,
+			'municipal': municipal,
 			'party': name_party,
+			'start_date': elec_date,
+			'end_date': elec_date, # when would start date be diff from end date?
 		}
 
 		print "loading election:", election_name
@@ -78,20 +94,15 @@ class ChicagoLoader():
 
 	def load(self, elec_metadata):
 
-		try:
-			elec_date = datetime.datetime.strptime(elec_metadata['date'], '%m/%d/%y')
-		except:
-			elec_date = datetime.datetime.strptime(elec_metadata['date'], '%m/%d/%Y')
-
 		chicago_args = {
 			'created': datetime.datetime.now(),
 			'updated': datetime.datetime.now(),
 			'source': elec_metadata['filename'],
-			'election_id': elec_metadata['filename'], # change this
-			'state': 'IL',
-			'place': 'Chicago',
-			'start_date': elec_date,
-			'end_date': elec_date, # when would start date be diff from end date?
+			'election_id': self.make_election_id(elec_metadata), # change this
+			'state': STATE,
+			'place': PLACE,
+			'start_date': elec_metadata['start_date'],
+			'end_date': elec_metadata['end_date'],
 			'election_type': elec_metadata['election_type'],
 			'result_type': 'certified',
 		}
@@ -116,6 +127,15 @@ class ChicagoLoader():
 
 		if results:
 			RawResult.objects.insert(results)
+
+	def make_election_id(self, elec_metadata):
+		d = elec_metadata['start_date'].strftime('%Y-%m-%d')
+		if elec_metadata['municipal']:
+			election_id = '%s-%s-%s-%s' %(STATE.lower(), PLACE.lower(), d, elec_metadata['election_type'])
+		else:
+			election_id = '%s-%s-%s' %(STATE.lower(), d, elec_metadata['election_type'])
+
+		return election_id
 
 	def get_contest_args(self, chicago_args, position):
 		
