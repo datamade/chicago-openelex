@@ -1,6 +1,7 @@
 import os
 import json
 import datetime
+import probablepeople as pp
 
 from openelex.models import RawResult
 
@@ -114,9 +115,19 @@ class ChicagoLoader():
 			content = f.read()
 			election_json = json.loads(content)
 
+			seen_ballot_measure = False
 			for contest in election_json['contests']:
 
-				contest_args = self.get_contest_args(chicago_args, contest['position'])
+				# for chicago election results, contests are always listed
+				# offices first, then judges, then ballot measures.
+				# since judges (which are sometimes just a name) & ballot initiatives
+				# don't have any language marking them as such, get_contest_args
+				# will use a name parser to identify a string as a name (therefore a judge) 
+				# or not a name (therefore a ballot measure). once one ballot measure is seen,
+				# the rest of the contests for that election are ballot measures
+				is_ballot_measure, contest_args = self.get_contest_args(chicago_args, contest['position'], seen_ballot_measure)
+				if is_ballot_measure:
+					seen_ballot_measure = True
 
 				if contest_args:
 					# print "   loading contest:", contest['position']
@@ -126,7 +137,7 @@ class ChicagoLoader():
 					print "   contest not loaded:", contest['position']
 
 		if results:
-			RawResult.objects.insert(results)
+			RawResult.objects.no_cache().insert(results)
 
 	def make_election_id(self, elec_metadata):
 		d = elec_metadata['start_date'].strftime('%Y-%m-%d')
@@ -137,7 +148,7 @@ class ChicagoLoader():
 
 		return election_id
 
-	def get_contest_args(self, chicago_args, position):
+	def get_contest_args(self, chicago_args, position, seen_ballot_measure):
 		
 		# load known offices
 		# detect judge races & ballot initiatives
@@ -195,12 +206,50 @@ class ChicagoLoader():
 			'committeeman',
 		]
 
+		offices_to_skip = [
+			'ballots cast',
+			'registered voters',
+			'amendment',
+			'national convention',
+			'natl. convention',
+			'state central committeeman',
+		]
+
+		chicago_args['office'] = position.lower()
+
 		for office_substring in known_offices:
 			if office_substring in position.lower():
-				chicago_args['office'] = position.lower()
-				return chicago_args
+				is_ballot_measure = False
+				if 'retain' in position.lower():
+					chicago_args['is_retention'] = True
+				return is_ballot_measure, chicago_args
 
-		return None
+		for office_substring in offices_to_skip:
+			if office_substring in position.lower():
+				print "  ~ skipped"
+				return None, None
+
+		if not seen_ballot_measure:
+			# at this point, an office is none of the above
+			try:
+				tokens, name_type = pp.tag(position.lower())
+
+				if name_type == 'Person':
+					chicago_args['is_retention'] = True
+					is_ballot_measure = False
+					return is_ballot_measure, chicago_args
+				else:
+					chicago_args['is_ballot_measure'] = True
+					is_ballot_measure = True
+					return is_ballot_measure, chicago_args
+			except pp.RepeatedLabelError:
+				print "REPEATED LABEL ERROR"
+				return None, None
+
+		else:
+			chicago_args['is_ballot_measure'] = True
+			is_ballot_measure = True
+			return is_ballot_measure, chicago_args
 
 
 
