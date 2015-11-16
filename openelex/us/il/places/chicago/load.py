@@ -158,6 +158,7 @@ class ChicagoLoader():
 			'president of the united states',
 			'president and vice president of the united states',
 			'pres and vice pres',
+			'president, u.s.',
 			'senator, u.s.',
 			'united states senator',
 			'u.s. senator',
@@ -212,10 +213,17 @@ class ChicagoLoader():
 			'amendment',
 			'national convention',
 			'natl. convention',
+			'delegate natl',
+			'delegates natl',
 			'state central committeeman',
+			'state central',
 		]
 
 		chicago_args['office'] = position.lower()
+
+		for office_substring in offices_to_skip:
+			if office_substring in position.lower():
+				return None, None
 
 		for office_substring in known_offices:
 			if office_substring in position.lower():
@@ -223,11 +231,6 @@ class ChicagoLoader():
 				if 'retain' in position.lower():
 					chicago_args['is_retention'] = True
 				return is_ballot_measure, chicago_args
-
-		for office_substring in offices_to_skip:
-			if office_substring in position.lower():
-				print "  ~ skipped"
-				return None, None
 
 		if not seen_ballot_measure:
 			# at this point, an office is none of the above
