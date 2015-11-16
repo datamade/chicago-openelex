@@ -3,7 +3,7 @@ import re
 import probablepeople as pp
 
 from openelex.base.transform import Transform, registry
-from openelex.models import Candidate, Contest, Office, Party, RawResult, Result
+from openelex.models import Candidate, Contest, Office, Party, RawResult, Result, Retention, BallotMeasure
 
 STATE = 'IL'
 PLACE = 'Chicago'
@@ -23,7 +23,6 @@ candidate_fields = meta_fields + ['full_name', 'given_name',
                                   'family_name', 'additional_name']
 result_fields = meta_fields + ['reporting_level', 'jurisdiction',
                                'votes', 'total_votes', 'vote_breakdowns']
-
 
 class BaseTransform(Transform):
 
@@ -45,18 +44,9 @@ class BaseTransform(Transform):
     def get_raw_results(self):
         return RawResult.objects.filter(state=STATE, place=PLACE).no_cache()
 
-    def get_judge_candidate_fields(self, raw_result):
-        fields = self._get_fields(raw_result, candidate_fields)
-        fields['full_name'] = None
-        return fields
-
     def get_candidate_fields(self, raw_result):
         fields = self._get_fields(raw_result, candidate_fields)
         full_name = raw_result.full_name.strip()
-
-        if full_name.lower() in ['yes', 'no']:
-            fields = self.get_judge_candidate_fields(raw_result)
-            return fields
 
         if full_name.lower() in ['no candidate', 'candidate withdrew']:
             fields['full_name'] = None
@@ -91,6 +81,31 @@ class BaseTransform(Transform):
 
         return fields
 
+    def standardize_value(self, raw_val):
+        if 'yes' in raw_val.lower():
+            return 'yes'
+        elif 'no' in raw_val.lower():
+            return 'no'
+        else:
+            return raw_val
+
+    def get_retention_fields(self, raw_result):
+        fields = self._get_fields(raw_result, meta_fields)
+
+        fields['value'] = self.standardize_value(raw_result.full_name)
+        fields['full_name'] = raw_result.office
+        # to-do: parse out name from retention strings
+
+        return fields
+
+    def get_ballot_measure_fields(self, raw_result):
+        fields = self._get_fields(raw_result, meta_fields)
+
+        fields['value'] = self.standardize_value(raw_result.full_name)
+        fields['full_name'] = raw_result.office
+
+        return fields
+
     def _get_fields(self, raw_result, field_names):
         return {k: getattr(raw_result, k) for k in field_names}
 
@@ -108,13 +123,21 @@ class BaseTransform(Transform):
         except KeyError:
             fields = self.get_contest_fields(raw_result)
 
-            if fields and fields['office']:
+            if fields:
                 fields.pop('source')
                 try:
                     try:
                         contest = Contest.objects.filter(**fields)[0]
                     except IndexError:
-                        contest = Contest.objects.get(**fields)
+                        try:
+                            contest = Contest.objects.get(**fields)
+                        # temporary
+                        except Contest.DoesNotExist:
+                            print "##########"
+                            print "CONTEST DOES NOT EXIST"
+                            print fields
+                            print "##########"
+                            return None
                 except Exception:
                     print fields
                     print "\n"
@@ -127,18 +150,25 @@ class BaseTransform(Transform):
 
     def get_contest_fields(self, raw_result):
         fields = self._get_fields(raw_result, contest_fields)
-        office = self._get_or_make_office(raw_result)
-        if office:
-            fields['office'] = office
+
+        if raw_result.is_retention:
+            fields['contest_name'] = raw_result.office
+            return fields
+        elif raw_result.is_ballot_measure:
+            fields['contest_name'] = raw_result.office
             return fields
         else:
-            return None
+            office = self._get_or_make_office(raw_result)
+            if office:
+                fields['office'] = office
+                return fields
+            else:
+                return None
 
     def _get_or_make_office(self, raw_result):
         clean_name = self._clean_office_name(raw_result.office)
 
         if clean_name:
-
             office_query = self._make_office_query(clean_name, raw_result)
             key = Office.make_key(**office_query)
 
@@ -163,7 +193,7 @@ class BaseTransform(Transform):
 
         """
 
-        us_pres =       ('president.+united\sstates|pres\sand\svice\spres', 
+        us_pres =       ('president.+united\sstates|pres\sand\svice\spres|pres.+u.?s.?', 
                         'President')
         us_senator =    ('senator.+u\.s\.|u\.s\..+senator|united\sstates\ssenator',
                         'U.S. Senate')
@@ -271,7 +301,10 @@ class BaseTransform(Transform):
             if re.findall("\d+", office_name_raw):
                 office_query['district'] = 'Ward '+re.findall("\d+", office_name_raw)[0]
 
-        if re.search('county', office_name_raw) and 'judge' not in office_name.lower():
+        county_offices = ['County Board President', 'County Commissioner', 'County Sherriff',
+                            'County Assessor', 'County Recorder of Deeds',
+                            'County Circuit Court Clerk', 'County Clerk']
+        if office_name in county_offices:
             office_query['county'] = COUNTY
 
         return office_query
@@ -312,33 +345,71 @@ class CreateContestsTransform(BaseTransform):
         old.delete()
 
 
-class CreateCandidatesTransform(BaseTransform):
-    name = 'chicago_create_unique_candidates'
+class CreateBallotChoicesTransform(BaseTransform):
+    name = 'chicago_create_unique_ballot_choices'
 
     def __init__(self):
-        super(CreateCandidatesTransform, self).__init__()
+        super(CreateBallotChoicesTransform, self).__init__()
 
     def __call__(self):
         candidates = []
+        retentions = []
+        ballot_measures = []
         seen = set()
 
         for rr in self.get_raw_results():
-            key = (rr.election_id, rr.contest_slug, rr.candidate_slug)
-            if key not in seen:
+            if rr.is_retention:
+                key = (rr.election_id, rr.contest_slug, self.standardize_value(rr.full_name))
+                if key not in seen:
 
-                fields = self.get_candidate_fields(rr)
-
-                if fields['full_name']:
+                    fields = self.get_retention_fields(rr)
                     contest = self.get_contest(rr)
                     if contest:
                         fields['contest'] = contest
-                        candidate = Candidate(**fields)
-                        candidates.append(candidate)
+                        r = Retention(**fields)
+                        retentions.append(r)
+                        if len(retentions) >= 1000:
+                            Retention.objects.no_cache().insert(retentions)
+                            retentions = []
 
-                seen.add(key)
+                    seen.add(key)
 
+            elif rr.is_ballot_measure:
+                key = (rr.election_id, rr.contest_slug, self.standardize_value(rr.full_name))
+                if key not in seen:
+
+                    fields = self.get_ballot_measure_fields(rr)
+                    contest = self.get_contest(rr)
+                    if contest:
+                        fields['contest'] = contest
+                        r = BallotMeasure(**fields)
+                        ballot_measures.append(r)
+                        if len(ballot_measures) >= 1000:
+                            BallotMeasure.objects.no_cache().insert(ballot_measures)
+                            ballot_measures = []
+
+                    seen.add(key)
+            else:
+                key = (rr.election_id, rr.contest_slug, rr.candidate_slug)
+                if key not in seen:
+
+                    fields = self.get_candidate_fields(rr)
+
+                    if fields['full_name']:
+                        contest = self.get_contest(rr)
+                        if contest:
+                            fields['contest'] = contest
+                            candidate = Candidate(**fields)
+                            candidates.append(candidate)
+                            if len(candidates) >= 1000:
+                                Candidate.objects.no_cache().insert(candidates)
+                                candidates = []
+
+                    seen.add(key)
 
         Candidate.objects.insert(candidates, load_bulk=False)
+        Retention.objects.insert(retentions, load_bulk=False)
+        BallotMeasure.objects.insert(ballot_measures, load_bulk=False)
 
     def reverse(self):
         old = Candidate.objects.filter(state=STATE)
@@ -360,37 +431,47 @@ class CreateResultsTransform(BaseTransform):
 
         # for now, skip offices that don't have candidates populated
         # e.g. retaining judges, ballot initiatives
-        office_to_skip = None
         for rr in self.get_rawresults():
-            this_office = rr.election_id+rr.office
 
-            if this_office != office_to_skip:
-                if rr.full_name.strip().lower() in ['yes', 'no', 'no candidate', 'candidate withdrew']:
-                    office_to_skip = this_office
-                    pass
+            if rr.full_name.strip().lower() in ['no candidate', 'candidate withdrew']:
+                pass
+            fields = self._get_fields(rr, result_fields)
+            fields['contest'] = self.get_contest(rr)
+
+            if fields['contest']:
+
+                # if this is a judge retention
+                if rr.is_retention:
+                    value = rr.full_name
+                    fields['retention'] = self.get_retention(rr, extra={
+                            'contest': fields['contest'],
+                            'value': value,
+                        })
+                    fields['contest'] = fields['candidate'].contest
+                # if this is a ballot measure
+                elif rr.is_ballot_measure:
+                # if this is voting to fill an office
                 else:
-                    fields = self._get_fields(rr, result_fields)
-                    fields['contest'] = self.get_contest(rr)
-                    if fields['contest']:
-                        try:
-                            fields['candidate'] = self.get_candidate(rr, extra={
-                                'contest': fields['contest'],
-                            })
-                            fields['contest'] = fields['candidate'].contest 
-                            fields['raw_result'] = rr
+                    try:
+                        fields['candidate'] = self.get_candidate(rr, extra={
+                            'contest': fields['contest'],
+                        })
+                        fields['contest'] = fields['candidate'].contest 
+                    # temporary
+                    except Candidate.MultipleObjectsReturned:
+                        print "*"*50
+                        print "multiple candidates returned"
+                        print "fields: %s" %fields
 
-                            result = Result(**fields)
-                            results.append(result)
-                        except Candidate.MultipleObjectsReturned:
-                            print "*"*50
-                            print "multiple candidates returned"
-                            print "fields: %s" %fields
+                fields['raw_result'] = rr
+                result = Result(**fields)
+                results.append(result)
 
-                    # for now, add results in chunks
-                    # instead of all at once at the end
-                    if len(results) >= 1000:
-                        self._create_results(results)
-                        results = []
+            # for now, add results in chunks
+            # instead of all at once at the end
+            if len(results) >= 1000:
+                self._create_results(results)
+                results = []
 
         self._create_results(results)
 
@@ -425,6 +506,35 @@ class CreateResultsTransform(BaseTransform):
             # self._candidate_cache[key] = candidate 
             return candidate
 
+    def get_retention(self, raw_result, extra={}):
+        """
+        Get the Rentention model for a RawResult
+        """
+        fields = self.get_retention_fields(raw_result)
+        fields.update(extra)
+        del fields['source']
+        try:
+            retention = Retention.objects.get(**fields)
+        except Retention.DoesNotExist:
+            raise
+        # self._candidate_cache[key] = candidate 
+        return retention
+
+    def get_ballot_measure(self, raw_result, extra={}):
+        """
+        Get the BallotMeasure model for a RawResult
+        """
+        fields = self.get_ballot_measure_fields(raw_result)
+        fields.update(extra)
+        del fields['source']
+        try:
+            bm = BallotMeasure.objects.get(**fields)
+        except BallotMeasureesNotExist:
+            raise
+        # self._candidate_cache[key] = candidate 
+        return bm
+
+
     def _create_results(self, results):
         """
         Create the Result objects in the database.
@@ -439,5 +549,5 @@ class CreateResultsTransform(BaseTransform):
 
 
 registry.register('il', CreateContestsTransform)
-registry.register('il', CreateCandidatesTransform)
+registry.register('il', CreateBallotChoicesTransform)
 registry.register('il', CreateResultsTransform)
